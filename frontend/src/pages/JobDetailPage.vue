@@ -9,22 +9,36 @@
 
     <q-banner v-if="job" rounded class="q-mb-md" :class="statusBannerClass">
       状态：{{ statusLabel(job.status) }}
+      <q-badge v-if="job.timed_out" color="white" text-color="negative" class="q-ml-sm">
+        作业超时
+      </q-badge>
       · 样例：{{ job.sample_name }}
       · 提交人：{{ job.created_by }}
       <div v-if="job.error_message" class="q-mt-sm">失败原因：{{ job.error_message }}</div>
     </q-banner>
 
-    <div class="text-subtitle1 q-mb-sm">Actor 阶段时间线</div>
+    <div class="text-subtitle1 q-mb-sm">Actor 阶段时间线（服务端毫秒耗时）</div>
     <q-timeline color="primary" class="q-mb-lg">
       <q-timeline-entry
         v-for="s in stages"
         :key="s.id"
         :title="s.actor_name"
         :subtitle="stageSubtitle(s)"
-        :color="stageColor(s.status)"
-        :icon="stageIcon(s.status)"
+        :color="s.timed_out ? 'negative' : stageColor(s.status)"
+        :icon="s.timed_out ? 'timer_off' : stageIcon(s.status)"
       >
         <div>{{ s.message || '—' }}</div>
+        <div class="q-mt-xs">
+          <q-badge :color="s.timed_out ? 'negative' : 'blue-3'" text-color="white" class="text-caption">
+            耗时 {{ s.duration_ms ?? '—' }} ms
+          </q-badge>
+          <q-badge v-if="s.timeout_ms != null" color="grey-5" class="q-ml-sm text-caption">
+            上限 {{ s.timeout_ms }} ms
+          </q-badge>
+          <q-badge v-if="s.timed_out" color="negative" class="q-ml-sm text-caption">
+            超限：{{ s.duration_ms }} &gt; {{ s.timeout_ms }} ms
+          </q-badge>
+        </div>
       </q-timeline-entry>
     </q-timeline>
 
@@ -97,13 +111,22 @@ const perPosPreview = computed(() => {
 const statusBannerClass = computed(() => {
   const s = job.value?.status
   if (s === 'success') return 'bg-positive text-white'
-  if (s === 'failed') return 'bg-negative text-white'
+  if (s === 'failed' || s === 'timeout') return 'bg-negative text-white'
   if (s === 'running') return 'bg-info text-dark'
   return 'bg-grey-3'
 })
 
 function statusLabel(s) {
-  return { pending: '排队中', running: '运行中', success: '成功', failed: '失败' }[s] || s
+  return (
+    {
+      pending: '排队中',
+      running: '运行中',
+      success: '成功',
+      failed: '失败',
+      timeout: '超时',
+      skipped: '跳过',
+    }[s] || s
+  )
 }
 
 function stageColor(status) {
@@ -114,6 +137,7 @@ function stageColor(status) {
       success: 'positive',
       failed: 'negative',
       skipped: 'warning',
+      timeout: 'negative',
     }[status] || 'grey'
   )
 }
@@ -126,12 +150,14 @@ function stageIcon(status) {
       success: 'check_circle',
       failed: 'error',
       skipped: 'skip_next',
+      timeout: 'timer_off',
     }[status] || 'circle'
   )
 }
 
 function stageSubtitle(s) {
   const parts = [statusLabel(s.status) || s.status]
+  if (s.duration_ms != null) parts.push(`耗时 ${s.duration_ms} ms`)
   if (s.started_at) parts.push(`开始 ${formatTime(s.started_at)}`)
   if (s.finished_at) parts.push(`结束 ${formatTime(s.finished_at)}`)
   return parts.join(' · ')

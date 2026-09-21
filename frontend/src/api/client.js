@@ -62,4 +62,31 @@ export async function createJob(body) {
   return data
 }
 
+// ---- 耗时台 / 超时门禁（数值均由服务端计算返回）----
+
+export async function getTimeoutConfigs() {
+  const { data } = await api.get('/timing/config')
+  return data
+}
+
+export async function updateTimeoutConfigs(items) {
+  const { data } = await api.put('/timing/config', { items })
+  return data
+}
+
+export async function getTimingOverview(windowSize = 10) {
+  const { data } = await api.get('/timing/overview', { params: { window: windowSize } })
+  return data
+}
+
+export async function getTimeoutJobs() {
+  const { data } = await api.get('/timing/timeouts')
+  return data
+}
+
+export async function getJobTiming(id) {
+  const { data } = await api.get(`/jobs/${id}/timing`)
+  return data
+}
+
 export default api

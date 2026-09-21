@@ -6,6 +6,7 @@
         <q-btn flat dense label="样例库" to="/samples" />
         <q-btn flat dense label="提交作业" to="/jobs/new" v-if="auth.role === 'bioops'" />
         <q-btn flat dense label="历史" to="/jobs" />
+        <q-btn flat dense label="耗时台" to="/timing" />
         <q-space />
         <div class="q-mr-md text-caption">
           {{ auth.username }}（{{ roleLabel }}）

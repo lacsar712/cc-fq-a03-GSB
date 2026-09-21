@@ -1,20 +1,27 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import authenticate_user, create_access_token, get_current_user, require_bioops
 from app.database import SessionLocal, get_db
 from app.models import Job, JobStage, Sample
 from app.pipeline.runner import create_job_stages, run_pipeline_sync
+from app.pipeline.timing import STAGE_ORDER
 from app.schemas import (
     HealthOut,
     JobCreate,
     JobListItem,
     JobOut,
+    JobTimingOut,
     LoginRequest,
     SampleOut,
     StageOut,
+    TimeoutConfigOut,
+    TimeoutConfigUpdate,
+    TimeoutJobOut,
+    TimingOverviewOut,
     TokenResponse,
 )
+from app import timing_service
 
 
 router = APIRouter(prefix="/api")
@@ -127,3 +134,59 @@ def get_job_stages(
         .order_by(JobStage.stage_order)
         .all()
     )
+
+
+# ---------------------------------------------------------------------------
+# 耗时台 / 超时门禁（耗时与是否超时一律由服务端计算返回）
+# ---------------------------------------------------------------------------
+
+
+@router.get("/timing/config", response_model=list[TimeoutConfigOut])
+def get_timeout_configs(
+    _user: dict = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """审计员可读,仅运维可改(见 PUT)。"""
+    return timing_service.list_timeout_configs(db)
+
+
+@router.put("/timing/config", response_model=list[TimeoutConfigOut])
+def put_timeout_configs(
+    body: TimeoutConfigUpdate,
+    user: dict = Depends(require_bioops),
+    db: Session = Depends(get_db),
+):
+    known = set(STAGE_ORDER)
+    unknown = [item.actor_name for item in body.items if item.actor_name not in known]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"未知 Actor: {', '.join(unknown)}")
+    items = {item.actor_name: item.timeout_ms for item in body.items}
+    return timing_service.update_timeout_configs(db, items, user["username"])
+
+
+@router.get("/timing/overview", response_model=TimingOverviewOut)
+def get_timing_overview(
+    window: int = Query(default=10, ge=1, le=100),
+    _user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """最近 window 个成功作业的各阶段平均耗时(服务端聚合)。"""
+    return timing_service.get_averages(db, window)
+
+
+@router.get("/timing/timeouts", response_model=list[TimeoutJobOut])
+def get_timeout_list(
+    _user: dict = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """超时作业清单,每行内联标出超限阶段。审计员可见。"""
+    return timing_service.get_timeout_jobs(db)
+
+
+@router.get("/jobs/{job_id}/timing", response_model=JobTimingOut)
+def get_job_timing(
+    job_id: int, _user: dict = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """单作业四阶段服务端耗时与门禁判定。"""
+    job = timing_service.get_job_timing(db, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="作业不存在")
+    return timing_service.build_job_timing(job)

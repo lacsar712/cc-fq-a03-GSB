@@ -13,7 +13,11 @@ from app.pipeline.actors import (
     QueueMessage,
     ReportActor,
 )
-from app.pipeline.runner import _run_chain
+from app.pipeline.runner import _run_chain, STAGE_NAMES
+
+
+# No timeout ceiling -> gate disabled for these pure-actor unit tests.
+NO_TIMEOUTS = {name: None for name in STAGE_NAMES}
 
 
 GOOD_FASTQ = """@SEQ1
@@ -47,7 +51,7 @@ async def test_parse_actor_rejects_malformed():
 
 @pytest.mark.asyncio
 async def test_parse_actor_ok_and_quality_mean():
-    ok, ctx, stages = await _run_chain(GOOD_FASTQ)
+    ok, ctx, stages = await _run_chain(GOOD_FASTQ, NO_TIMEOUTS)
     assert ok is True
     assert stages["ParseActor"]["status"] == "success"
     assert stages["ReportActor"]["status"] == "success"
@@ -59,7 +63,7 @@ async def test_parse_actor_ok_and_quality_mean():
 
 @pytest.mark.asyncio
 async def test_broken_stops_pipeline():
-    ok, ctx, stages = await _run_chain(BROKEN_FASTQ)
+    ok, ctx, stages = await _run_chain(BROKEN_FASTQ, NO_TIMEOUTS)
     assert ok is False
     assert stages["ParseActor"]["status"] == "failed"
     assert stages["QualityHistActor"]["status"] == "skipped"

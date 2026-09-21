@@ -28,6 +28,9 @@
           <q-badge :color="statusColor(props.row.status)">
             {{ statusLabel(props.row.status) }}
           </q-badge>
+          <q-badge v-if="props.row.timed_out" color="negative" class="q-ml-sm">
+            超限
+          </q-badge>
         </q-td>
       </template>
       <template #body-cell-metrics="props">
@@ -77,11 +80,22 @@ const columns = [
 ]
 
 function statusLabel(s) {
-  return { pending: '排队中', running: '运行中', success: '成功', failed: '失败' }[s] || s
+  return (
+    { pending: '排队中', running: '运行中', success: '成功', failed: '失败', timeout: '超时' }[s] ||
+    s
+  )
 }
 
 function statusColor(s) {
-  return { pending: 'grey', running: 'info', success: 'positive', failed: 'negative' }[s] || 'grey'
+  return (
+    {
+      pending: 'grey',
+      running: 'info',
+      success: 'positive',
+      failed: 'negative',
+      timeout: 'negative',
+    }[s] || 'grey'
+  )
 }
 
 async function load() {
