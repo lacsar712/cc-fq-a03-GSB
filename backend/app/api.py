@@ -1,19 +1,34 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import authenticate_user, create_access_token, get_current_user, require_bioops
 from app.database import SessionLocal, get_db
-from app.models import Job, JobStage, Sample
+from app.models import ActorTimeoutConfig, Job, JobStage, Sample
+from app.pipeline.actors import ACTOR_CHAIN
 from app.pipeline.runner import create_job_stages, run_pipeline_sync
 from app.schemas import (
     HealthOut,
     JobCreate,
     JobListItem,
     JobOut,
+    JobTimingOut,
     LoginRequest,
     SampleOut,
     StageOut,
+    TimeoutConfigOut,
+    TimeoutConfigUpdate,
+    TimeoutJobOut,
+    TimingSummaryOut,
     TokenResponse,
+)
+from app.timing import (
+    compute_job_timing,
+    compute_timing_summary,
+    ensure_default_timeout_configs,
+    list_timeout_configs,
+    list_timeout_jobs,
 )
 
 
@@ -127,3 +142,71 @@ def get_job_stages(
         .order_by(JobStage.stage_order)
         .all()
     )
+
+
+# ---------- 耗时与超时门禁台 ----------
+
+
+@router.get("/timing/config", response_model=list[TimeoutConfigOut])
+def get_timeout_configs(
+    _user: dict = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """查看每个 Actor 的超时上限（运维与审计员均可读）。"""
+    ensure_default_timeout_configs(db)
+    return list_timeout_configs(db)
+
+
+@router.put("/timing/config/{actor_name}", response_model=TimeoutConfigOut)
+def update_timeout_config(
+    actor_name: str,
+    body: TimeoutConfigUpdate,
+    user: dict = Depends(require_bioops),
+    db: Session = Depends(get_db),
+):
+    """运维修改某 Actor 的超时毫秒上限并落库；审计员调用返回 403。"""
+    valid_names = {cls.name for cls in ACTOR_CHAIN}
+    if actor_name not in valid_names:
+        raise HTTPException(status_code=404, detail=f"未知 Actor: {actor_name}")
+    row = (
+        db.query(ActorTimeoutConfig)
+        .filter(ActorTimeoutConfig.actor_name == actor_name)
+        .first()
+    )
+    if row is None:
+        row = ActorTimeoutConfig(actor_name=actor_name, timeout_ms=body.timeout_ms)
+        db.add(row)
+    row.timeout_ms = body.timeout_ms
+    row.updated_by = user["username"]
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.get("/timing/summary", response_model=TimingSummaryOut)
+def get_timing_summary(
+    limit: int = Query(default=20, ge=1, le=200),
+    _user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """最近 limit 个成功作业的各阶段平均耗时（服务端聚合）。"""
+    return compute_timing_summary(db, limit)
+
+
+@router.get("/timing/timeouts", response_model=list[TimeoutJobOut])
+def get_timeout_jobs(
+    _user: dict = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """超时清单：任一阶段超限的作业，行内带超限阶段明细。"""
+    return list_timeout_jobs(db)
+
+
+@router.get("/timing/jobs/{job_id}", response_model=JobTimingOut)
+def get_job_timing(
+    job_id: int, _user: dict = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """单作业四阶段毫秒耗时与超限标记（全部服务端计算）。"""
+    timing = compute_job_timing(db, job_id)
+    if timing is None:
+        raise HTTPException(status_code=404, detail="作业不存在")
+    return timing

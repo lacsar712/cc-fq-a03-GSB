@@ -28,6 +28,9 @@
           <q-badge :color="statusColor(props.row.status)">
             {{ statusLabel(props.row.status) }}
           </q-badge>
+          <q-badge v-if="props.row.timed_out" color="warning" text-color="dark" class="q-ml-xs">
+            超时
+          </q-badge>
         </q-td>
       </template>
       <template #body-cell-metrics="props">

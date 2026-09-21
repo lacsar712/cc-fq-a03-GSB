@@ -8,6 +8,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.database import Base, SessionLocal, engine
 from app.models import Sample
+from app.timing import ensure_default_timeout_configs
 
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -30,6 +31,7 @@ def seed() -> None:
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
+        ensure_default_timeout_configs(db)
         if db.query(Sample).count() > 0:
             print("samples already seeded, skip")
             return

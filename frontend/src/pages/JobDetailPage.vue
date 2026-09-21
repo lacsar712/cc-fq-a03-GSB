@@ -9,6 +9,9 @@
 
     <q-banner v-if="job" rounded class="q-mb-md" :class="statusBannerClass">
       状态：{{ statusLabel(job.status) }}
+      <q-badge v-if="job.timed_out" color="warning" text-color="dark" class="q-ml-sm">
+        存在超时阶段
+      </q-badge>
       · 样例：{{ job.sample_name }}
       · 提交人：{{ job.created_by }}
       <div v-if="job.error_message" class="q-mt-sm">失败原因：{{ job.error_message }}</div>
@@ -25,6 +28,12 @@
         :icon="stageIcon(s.status)"
       >
         <div>{{ s.message || '—' }}</div>
+        <!-- 耗时与超限标记均由服务端计算返回，前端不做时间戳相减估算 -->
+        <div class="text-caption q-mt-xs">
+          <span v-if="s.duration_ms != null">耗时 {{ s.duration_ms }} ms</span>
+          <span v-if="s.timeout_ms_limit != null"> · 超时上限 {{ s.timeout_ms_limit }} ms</span>
+          <q-badge v-if="s.timed_out" color="negative" class="q-ml-xs">超时</q-badge>
+        </div>
       </q-timeline-entry>
     </q-timeline>
 
